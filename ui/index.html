@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kafka Pub/Sub Demo — Order Processing</title>
+  <style>
+    /* ── Reset & Variables ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --border:    #30363d;
+      --producer:  #2ea043;
+      --kafka:     #388bfd;
+      --consumer:  #f78166;
+      --text:      #c9d1d9;
+      --dim:       #8b949e;
+      --white:     #e6edf3;
+      --radius:    8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--white);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    header h1 span {
+      color: var(--dim);
+      font-weight: 400;
+      font-size: 13px;
+    }
+
+    .conn-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: var(--dim);
+    }
+
+    .conn-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #f85149;
+      flex-shrink: 0;
+    }
+
+    .conn-dot.live {
+      background: var(--producer);
+      box-shadow: 0 0 8px var(--producer);
+      animation: blink 2.2s ease infinite;
+    }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+    /* ── Controls Bar ──────────────────────────────────────────────────────── */
+    .controls {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: flex-end;
+      gap: 28px;
+      flex-wrap: wrap;
+    }
+
+    .ctrl-group { display: flex; flex-direction: column; gap: 6px; }
+
+    .ctrl-group label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--dim);
+    }
+
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+
+    input[type=range] {
+      width: 190px;
+      accent-color: var(--kafka);
+      cursor: pointer;
+    }
+
+    .slider-val {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--white);
+      min-width: 52px;
+    }
+
+    .interval-hint {
+      font-size: 12px;
+      color: var(--dim);
+      padding-bottom: 3px;
+      white-space: nowrap;
+    }
+
+    .send-btn {
+      background: var(--kafka);
+      color: #fff;
+      border: none;
+      padding: 9px 26px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .02em;
+      transition: background .2s, transform .1s, opacity .2s;
+      white-space: nowrap;
+    }
+
+    .send-btn:hover  { background: #58a6ff; }
+    .send-btn:active { transform: scale(.97); }
+    .send-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .send-status {
+      font-size: 12px;
+      color: var(--dim);
+      padding-bottom: 3px;
+      min-width: 180px;
+    }
+
+    /* ── Main Layout ───────────────────────────────────────────────────────── */
+    main { padding: 22px 24px; }
+
+    /* ── Pipeline Row ──────────────────────────────────────────────────────── */
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-bottom: 22px;
+    }
+
+    /* ── Panel Cards ───────────────────────────────────────────────────────── */
+    .panel {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .panel::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    .panel.producer::after  { background: var(--producer); }
+    .panel.kafka::after     { background: var(--kafka); }
+    .panel.consumer::after  { background: var(--consumer); }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .panel.producer  .panel-title { color: var(--producer); }
+    .panel.kafka     .panel-title { color: var(--kafka); }
+    .panel.consumer  .panel-title { color: var(--consumer); }
+
+    .big-num {
+      font-size: 52px;
+      font-weight: 700;
+      color: var(--white);
+      line-height: 1;
+      margin-bottom: 4px;
+      transition: color .25s;
+    }
+
+    .big-num.flash { color: var(--kafka); }
+
+    .panel-sub {
+      font-size: 12px;
+      color: var(--dim);
+      margin-bottom: 14px;
+    }
+
+    .panel-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    .panel-rows > div {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .panel-rows strong { color: var(--text); font-weight: 600; }
+
+    /* Kafka extras */
+    .topic-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(56,139,253,.1);
+      border: 1px solid rgba(56,139,253,.3);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 12px;
+      color: var(--kafka);
+      margin-bottom: 14px;
+    }
+
+    .inflight-num {
+      font-size: 44px;
+      font-weight: 700;
+      color: var(--kafka);
+      line-height: 1;
+    }
+
+    /* ── Connectors ────────────────────────────────────────────────────────── */
+    .connector {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 0 6px;
+      gap: 6px;
+      min-width: 64px;
+      position: relative;
+    }
+
+    .conn-track {
+      width: 100%;
+      height: 20px;
+      border-radius: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Animated shimmer inside connector tracks */
+    .conn-track::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(56,139,253,.35) 50%,
+        transparent 100%
+      );
+      background-size: 200% 100%;
+      animation: shimmer 2s linear infinite;
+      opacity: 0;
+      transition: opacity .4s;
+    }
+
+    .conn-track.active::after { opacity: 1; }
+
+    @keyframes shimmer { from{background-position:200% 0} to{background-position:-200% 0} }
+
+    .conn-label {
+      font-size: 10px;
+      color: var(--dim);
+      text-align: center;
+    }
+
+    /* ── Flying Particles ──────────────────────────────────────────────────── */
+    .particle {
+      position: fixed;
+      z-index: 9999;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      pointer-events: none;
+      transition:
+        left .55s cubic-bezier(.4,0,.2,1),
+        top  .55s cubic-bezier(.4,0,.2,1),
+        opacity .18s ease;
+    }
+
+    /* ── Log Table ─────────────────────────────────────────────────────────── */
+    .log-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .log-head {
+      padding: 11px 18px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .log-wrap {
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .log-wrap::-webkit-scrollbar { width: 6px; }
+    .log-wrap::-webkit-scrollbar-track { background: var(--surface2); }
+    .log-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    th {
+      padding: 9px 16px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--dim);
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    td {
+      padding: 9px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .new-row { animation: fadeIn .45s ease; }
+
+    @keyframes fadeIn {
+      from { background: rgba(56,139,253,.14); }
+      to   { background: transparent; }
+    }
+
+    .oid   { color: #58a6ff; font-family: ui-monospace, monospace; font-size: 12px; }
+    .money { color: var(--producer); font-weight: 600; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(46,160,67,.18);
+      color: var(--producer);
+    }
+
+    .empty-state {
+      text-align: center;
+      color: var(--dim);
+      padding: 36px 16px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <h1>⚡ Kafka Pub/Sub Demo <span>— Order Processing System</span></h1>
+  <div class="conn-badge">
+    <div class="conn-dot" id="connDot"></div>
+    <span id="connStatus">Connecting…</span>
+  </div>
+</header>
+
+<!-- ── Controls ───────────────────────────────────────────────────────────── -->
+<div class="controls">
+
+  <div class="ctrl-group">
+    <label>Number of Orders &nbsp;<small style="color:#444d56">(max 100)</small></label>
+    <div class="slider-row">
+      <input type="range" id="countSlider" min="1" max="100" value="10">
+      <span class="slider-val" id="countVal">10</span>
+    </div>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Time Window &nbsp;<small style="color:#444d56">(max 120 s)</small></label>
+    <div class="slider-row">
+      <input type="range" id="windowSlider" min="1" max="120" value="20">
+      <span class="slider-val" id="windowVal">20 s</span>
+    </div>
+  </div>
+
+  <div class="interval-hint" id="intervalHint">~ 2.0 s between orders</div>
+
+  <button class="send-btn" id="sendBtn">⚡ SEND BURST</button>
+
+  <div class="send-status" id="sendStatus"></div>
+
+</div>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Pipeline -->
+  <div class="pipeline">
+
+    <!-- PRODUCER -->
+    <div class="panel producer" id="producerPanel">
+      <div class="panel-title">📤 Producer</div>
+      <div class="big-num" id="producedCount">0</div>
+      <div class="panel-sub">orders published to Kafka</div>
+      <div class="panel-rows">
+        <div><span>Last Order</span>   <strong id="producedLast">—</strong></div>
+        <div><span>Rate</span>         <strong id="producedRate">0 /s</strong></div>
+        <div><span>Broker</span>       <strong style="color:var(--producer)">localhost:9092</strong></div>
+      </div>
+    </div>
+
+    <!-- Connector 1 -->
+    <div class="connector">
+      <div class="conn-track" id="track1"></div>
+      <div class="conn-label">→ Publish →</div>
+    </div>
+
+    <!-- KAFKA -->
+    <div class="panel kafka" id="kafkaPanel">
+      <div class="panel-title">⚡ Kafka Broker</div>
+      <div class="topic-badge">📨 topic: orders</div>
+      <div style="margin-bottom:6px;font-size:11px;color:var(--dim)">MESSAGES IN FLIGHT</div>
+      <div class="inflight-num" id="inFlight">0</div>
+      <div class="panel-rows" style="margin-top:14px">
+        <div><span>Total Produced</span> <strong id="kafkaTotal">0</strong></div>
+        <div><span>Partition</span>      <strong>0</strong></div>
+        <div><span>Replication</span>    <strong>1</strong></div>
+      </div>
+    </div>
+
+    <!-- Connector 2 -->
+    <div class="connector">
+      <div class="conn-track" id="track2"></div>
+      <div class="conn-label">→ Consume →</div>
+    </div>
+
+    <!-- CONSUMER -->
+    <div class="panel consumer" id="consumerPanel">
+      <div class="panel-title">📥 Consumer + PostgreSQL</div>
+      <div class="big-num" id="consumedCount">0</div>
+      <div class="panel-sub">orders saved to database</div>
+      <div class="panel-rows">
+        <div><span>Last Saved</span> <strong id="consumedLast">—</strong></div>
+        <div><span>Rate</span>       <strong id="consumedRate">0 /s</strong></div>
+        <div><span>Database</span>   <strong style="color:var(--producer)">kafka_demo.orders</strong></div>
+      </div>
+    </div>
+
+  </div><!-- /pipeline -->
+
+  <!-- Log Table -->
+  <div class="log-card">
+    <div class="log-head">
+      <span>📋 Live Order Log</span>
+      <span id="logCount" style="font-weight:400;letter-spacing:0">0 orders</span>
+    </div>
+    <div class="log-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <tr>
+            <td colspan="7" class="empty-state">
+              Waiting for orders… set your burst parameters above and hit <strong>⚡ SEND BURST</strong>.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── JavaScript ─────────────────────────────────────────────────────────── -->
+<script>
+"use strict";
+
+// ── DOM helpers ───────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const el = id => $(id);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let produced      = 0;
+let consumed      = 0;
+let inFlight      = 0;
+let logRows       = 0;
+
+let producedTick  = 0;   // incremented each second window
+let consumedTick  = 0;
+let lastTick      = Date.now();
+
+// ── Sliders ───────────────────────────────────────────────────────────────────
+function refreshInterval() {
+  const cnt  = parseInt(el('countSlider').value);
+  const win  = parseInt(el('windowSlider').value);
+  el('countVal').textContent  = cnt;
+  el('windowVal').textContent = win + ' s';
+  const iv = win / cnt;
+  el('intervalHint').textContent =
+    cnt === 1 ? 'Single order — sent immediately'
+              : `~ ${iv.toFixed(1)} s between orders`;
+}
+
+el('countSlider').addEventListener('input', refreshInterval);
+el('windowSlider').addEventListener('input', refreshInterval);
+refreshInterval();
+
+// ── Send button ───────────────────────────────────────────────────────────────
+el('sendBtn').addEventListener('click', async () => {
+  const cnt = parseInt(el('countSlider').value);
+  const win = parseInt(el('windowSlider').value);
+
+  el('sendBtn').disabled = true;
+  el('sendStatus').textContent =
+    `Sending ${cnt} order${cnt > 1 ? 's' : ''} over ${win} s…`;
+
+  try {
+    const res = await fetch('/api/send', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ count: cnt, window: win }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    // button re-enabled by burst_done SSE event (or fallback timeout)
+    setTimeout(() => {
+      el('sendBtn').disabled = false;
+      el('sendStatus').textContent = '';
+    }, win * 1000 + 2000);
+  } catch (e) {
+    el('sendStatus').textContent = '⚠ ' + e.message;
+    el('sendBtn').disabled = false;
+  }
+});
+
+// ── Counter bump animation ────────────────────────────────────────────────────
+function bump(elemId, val) {
+  const e = el(elemId);
+  e.textContent = val;
+  e.classList.remove('flash');
+  void e.offsetWidth;           // reflow to restart animation
+  e.classList.add('flash');
+  setTimeout(() => e.classList.remove('flash'), 280);
+}
+
+// ── Flying particle ───────────────────────────────────────────────────────────
+function spawnParticle(fromEl, toEl, color, emoji) {
+  const fR = fromEl.getBoundingClientRect();
+  const tR = toEl.getBoundingClientRect();
+
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.textContent = emoji;
+  p.style.cssText = `
+    background: ${color};
+    box-shadow: 0 0 12px ${color}99;
+    left: ${fR.right - 15}px;
+    top:  ${fR.top + fR.height / 2 - 15}px;
+  `;
+  document.body.appendChild(p);
+
+  // Two rAF frames ensure initial position is painted before transition starts
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    p.style.left = (tR.left - 15) + 'px';
+    p.style.top  = (tR.top + tR.height / 2 - 15) + 'px';
+  }));
+
+  setTimeout(() => { p.style.opacity = '0'; }, 520);
+  setTimeout(() => p.remove(), 720);
+}
+
+// ── Connector track shimmer ───────────────────────────────────────────────────
+let track1Timer = null;
+let track2Timer = null;
+
+function activateTrack(trackId, timerRef) {
+  const t = el(trackId);
+  t.classList.add('active');
+  clearTimeout(timerRef);
+  return setTimeout(() => t.classList.remove('active'), 1200);
+}
+
+// ── Log table ─────────────────────────────────────────────────────────────────
+function addRow(order) {
+  const tbody = el('logBody');
+
+  // Remove the empty-state placeholder if present
+  const ph = tbody.querySelector('.empty-state');
+  if (ph) ph.closest('tr').remove();
+
+  const ts = (order.timestamp || '')
+    .replace('T', ' ').replace('Z', '');
+
+  const tr = document.createElement('tr');
+  tr.className = 'new-row';
+  tr.innerHTML = `
+    <td class="oid">${order.order_id}</td>
+    <td>${order.customer}</td>
+    <td>${order.item}</td>
+    <td>${order.quantity}</td>
+    <td class="money">$${Number(order.amount).toFixed(2)}</td>
+    <td><span class="badge">${order.status}</span></td>
+    <td style="color:var(--dim);font-size:12px">${ts}</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+
+  logRows++;
+  el('logCount').textContent = `${logRows.toLocaleString()} orders`;
+
+  // Cap visible rows to keep the DOM lean
+  while (tbody.rows.length > 200) tbody.deleteRow(tbody.rows.length - 1);
+}
+
+// ── Rate ticker (every 2 s) ───────────────────────────────────────────────────
+setInterval(() => {
+  const now     = Date.now();
+  const elapsed = (now - lastTick) / 1000;
+  lastTick = now;
+
+  el('producedRate').textContent = (producedTick / elapsed).toFixed(1) + ' /s';
+  el('consumedRate').textContent = (consumedTick / elapsed).toFixed(1) + ' /s';
+
+  producedTick = 0;
+  consumedTick = 0;
+}, 2000);
+
+// ── SSE connection ────────────────────────────────────────────────────────────
+const producerPanel  = el('producerPanel');
+const kafkaPanel     = el('kafkaPanel');
+const consumerPanel  = el('consumerPanel');
+
+function connectSSE() {
+  const es = new EventSource('/api/stream');
+
+  es.onopen = () => {
+    el('connDot').classList.add('live');
+    el('connStatus').textContent = 'Live';
+  };
+
+  es.onmessage = (e) => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+
+    // ── connected ────────────────────────────────────────────────────────────
+    if (ev.type === 'connected') {
+      el('connDot').classList.add('live');
+      el('connStatus').textContent = 'Live';
+    }
+
+    // ── order produced (Producer → Kafka) ────────────────────────────────────
+    if (ev.type === 'produced') {
+      produced++;
+      producedTick++;
+      inFlight++;
+
+      bump('producedCount', produced);
+      el('producedLast').textContent = ev.data.order_id;
+      el('inFlight').textContent     = inFlight;
+      el('kafkaTotal').textContent   = produced;
+
+      spawnParticle(producerPanel, kafkaPanel, '#2ea043', '📦');
+      track1Timer = activateTrack('track1', track1Timer);
+    }
+
+    // ── order consumed (Kafka → Consumer + DB) ───────────────────────────────
+    if (ev.type === 'consumed') {
+      consumed++;
+      consumedTick++;
+      inFlight = Math.max(0, inFlight - 1);
+
+      bump('consumedCount', consumed);
+      el('consumedLast').textContent = ev.data.order_id;
+      el('inFlight').textContent     = inFlight;
+
+      spawnParticle(kafkaPanel, consumerPanel, '#f78166', '💾');
+      track2Timer = activateTrack('track2', track2Timer);
+
+      addRow(ev.data);
+    }
+
+    // ── burst done ───────────────────────────────────────────────────────────
+    if (ev.type === 'burst_done') {
+      el('sendBtn').disabled = false;
+      el('sendStatus').textContent = `✓ Burst of ${ev.data.count} orders complete`;
+      setTimeout(() => { el('sendStatus').textContent = ''; }, 3000);
+    }
+  };
+
+  es.onerror = () => {
+    el('connDot').classList.remove('live');
+    el('connStatus').textContent = 'Reconnecting…';
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+connectSSE();
+</script>
+
+</body>
+</html>
