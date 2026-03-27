@@ -34,8 +34,8 @@ DB_CONFIG = dict(
     host     = "localhost",
     port     = 5432,
     dbname   = "kafka_demo",
-    user     = "amkadian",
-    password = "Myjob@2017",
+    user     = "<tbd>",
+    password = "<tbd>",
 )
 
 # ── Flask App ──────────────────────────────────────────────────────────────────
