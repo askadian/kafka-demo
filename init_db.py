@@ -7,8 +7,8 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 DB_HOST     = "localhost"
 DB_PORT     = 5432
-DB_USER     = "amkadian"
-DB_PASSWORD = "Myjob@2017"
+DB_USER     = "<tbd>"
+DB_PASSWORD = "<tbd>"
 DB_NAME     = "kafka_demo"
 
 # ── Step 1: create the database if it doesn't exist ───────────────────────────
